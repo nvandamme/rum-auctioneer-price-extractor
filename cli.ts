@@ -2,14 +2,14 @@ import { Command, InvalidArgumentError, Option, OptionValues } from 'commander';
 import { getData, encodeData, writeData, DataTable } from "./lib/data";
 import { launchServer } from './server';
 
-const program = new Command();
+const program = new Command(); //.makeOptionMandatory(true))
 
 program
     .command('get')
-    .addOption(new Option('-d, --debug', 'output extra debugging').default('https://rumauctioneer.com/auction-search'))
+    .addOption(new Option('-d, --debug', 'output extra debugging'))
     .addOption(new Option('-u, --url <url>', 'url to parse').default('https://rumauctioneer.com/auction-search'))
     .addOption(new Option('-o, --output <filepath>', 'output to file'))
-    .addOption(new Option('-i, --input <keywords>', 'text input to search for').makeOptionMandatory(true))
+    .addOption(new Option('-i, --input <keywords>', 'text input to search for').default(""))
     .addOption(new Option('-n, --items <number>', 'number of items to extract').argParser<number>(
         (value: string, prev: number) => {
             const parsedValue = parseInt(value, 10);

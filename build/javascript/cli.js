@@ -15,10 +15,10 @@ const server_1 = require("./server");
 const program = new commander_1.Command();
 program
     .command('get')
-    .addOption(new commander_1.Option('-d, --debug', 'output extra debugging').default('https://rumauctioneer.com/auction-search'))
+    .addOption(new commander_1.Option('-d, --debug', 'output extra debugging'))
     .addOption(new commander_1.Option('-u, --url <url>', 'url to parse').default('https://rumauctioneer.com/auction-search'))
     .addOption(new commander_1.Option('-o, --output <filepath>', 'output to file'))
-    .addOption(new commander_1.Option('-i, --input <keywords>', 'text input to search for').makeOptionMandatory(true))
+    .addOption(new commander_1.Option('-i, --input <keywords>', 'text input to search for').default(""))
     .addOption(new commander_1.Option('-n, --items <number>', 'number of items to extract').argParser((value, prev) => {
     const parsedValue = parseInt(value, 10);
     if (isNaN(parsedValue)) {

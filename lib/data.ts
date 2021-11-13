@@ -10,10 +10,16 @@ import { dir } from 'console';
 import { Interface } from 'readline';
 
 export interface DataItem {
+    lot: number,
+    vat: string,
+    bid_open: boolean,
     name: string,
-    date: DateTime,
+    date?: DateTime,
     price: number,
     currency: string,
+    item_number?: number,
+    product_image?: string,
+    product_url?: string,
     raw_date: string,
     raw_price: string,
 }
@@ -53,8 +59,8 @@ export async function saveDB(data: DataTable) {
     }
 }
 
-export async function getData(options: OptionValues) {
-    const url = `${options.url}?text=${options.input}&sort=${options.sort}&items_per_page=${options.items}`;
+export async function getData(options: OptionValues, data:DataTable = [], current_page:number = 0, total_pages:number = -1) {
+    const url = `${options.url}?text=${options.input}&sort=${options.sort}&items_per_page=${options.items}&page=${current_page}`;
     const response = await got(url);
 
     if (response.statusCode !== 200) {
@@ -70,75 +76,133 @@ export async function getData(options: OptionValues) {
         let numberParser: NumberParser;
         if (lang !== undefined) numberParser = new NumberParser(lang);
 
-        let data: DataTable = [];
-
         let db: DataTable = await loadDB();
 
         let dbHasChanges: boolean = false;
 
+        if (total_pages == -1) {
+            // https://rumauctioneer.com/auction-search?text=&sort=field_reference_field_end_date%20DESC&items_per_page=500&page=43
+            total_pages = parseInt($('.pager-last a').attr('href')?.split('&page=')[1].split('&')[0] || "1");
+            current_page = 0;
+        }
+
         $('div.views-row.producthomepage').each((i, product) => {
-            const name = $(product).find('span.protitle').text().trim();
-            const date_string = $(product).find('div.enddatein > span.uc-price').text().trim();
+            const lot_string = $(product).find('.lotnumber').text().toLowerCase().split('lot:').join('').trim();
+            let lot: number = 0;
+            let vat = 'uk';
+            let vat_selector = $(product).find('.lot-vat');
+            if ($(vat_selector.hasClass('vat-uk'))) vat = 'uk';
+            else if ($(vat_selector.hasClass('vat-eu'))) vat = 'eu';
+            else if ($(vat_selector.hasClass('vat-us'))) vat = 'us';
+            const name = $(product).find('.protitle').text().trim();
+            const date_string = $(product).find('.enddatein .uc-price').text().trim();
             const date = DateTime.fromFormat(date_string, 'dd.MM.yy');
-            const price_string = $(product).find('span > span.uc-price').text().trim();
-            let currency: string = "€";
+            const price_string = $(product).find('.WinningBid .uc-price').text().trim();
+            const product_image_string = $(product).find('.productimage img').attr('src')?.split('product_current').join('uc_product_full');
+            const product_image = (product_image_string !== undefined) ? product_image_string : "";
+            const product_url_string = $(product).find('a').attr('href');
+            const product_url = (product_url_string !== undefined) ? product_url_string : "";
+            let currency: string = "£";
             let price: number = 0;
 
-            let raw_price = price_string.replace(/\s/gi, '')
+            let raw_price = price_string.replace(/\s/gi, '');
 
-            if (name != "" && date != null) {
+            const bid_open = (date_string !== "" && date !== undefined && date !== null) ? false : true;
 
-                if (isNaN(parseInt(raw_price[0])) === true) {
-                    currency = raw_price[0];
-                    if (lang) {
-                        price = numberParser.parse(raw_price.substr(1));
-                        //price_string = `${currency}${price}`;
-                    }
-                    else price = parseFloat(raw_price.substr(1));
+            const item_number_check = name.split('#');
+            let item_number;
+
+            if (item_number_check.length > 1) item_number = parseInt(item_number_check[1].split(' ')[0]);
+
+            if (lot_string !== "") lot = parseInt(lot_string);
+
+            if (isNaN(parseInt(raw_price[0])) === true) {
+                currency = raw_price[0];
+                if (lang) {
+                    price = numberParser.parse(raw_price.substr(1));
+                    //price_string = `${currency}${price}`;
                 }
-                else if (isNaN(parseInt(raw_price[raw_price.length - 1])) === true) {
-                    currency = raw_price[raw_price.length - 1];
-                    if (lang) {
-                        price = numberParser.parse(raw_price.substr(0, raw_price.length - 1));
-                        //price_string = `${price}${currency}`;
-                    }
-                    else price = parseFloat(raw_price.substr(0, raw_price.length - 1))
+                else price = parseFloat(raw_price.substr(1));
+            }
+            else if (isNaN(parseInt(raw_price[raw_price.length - 1])) === true) {
+                currency = raw_price[raw_price.length - 1];
+                if (lang) {
+                    price = numberParser.parse(raw_price.substr(0, raw_price.length - 1));
+                    //price_string = `${price}${currency}`;
                 }
-                else {
-                    if (lang) {
-                        price = numberParser.parse(raw_price)
-                        //price_string = price.toString();
-                    }
-                    else price = parseFloat(raw_price);
+                else price = parseFloat(raw_price.substr(0, raw_price.length - 1))
+            }
+            else {
+                if (lang) {
+                    price = numberParser.parse(raw_price)
+                    //price_string = price.toString();
                 }
+                else price = parseFloat(raw_price);
+            }
 
-                if (price != null && isNaN(price) != true) {
+            const extractedItem: DataItem = {
+                lot: lot,
+                vat: vat,
+                bid_open: bid_open,
+                name: name,
+                date: date,
+                price: price,
+                currency: currency,
+                item_number: item_number,
+                product_image: product_image,
+                product_url: product_url,
+                raw_date: date_string,
+                raw_price: price_string
+            }
 
-                    const extractedItem: DataItem = {
-                        name: name,
-                        date: date,
-                        price: price,
-                        currency: currency,
-                        raw_date: date_string,
-                        raw_price: price_string
+            if (price != null && isNaN(price) != true && lot > 0) {
+
+                // check if auction date for `lot` is not already extracted and add to json db
+                let isNewRecord = true;
+                for (let i = 0; i < db.length; i++) {
+                    const item = db[i];
+                    if (item.lot === lot) {
+                        if (
+                            (item.bid_open !== true && (item.date !== date || item.vat !== vat || item.price !== price)) || 
+                            (item.bid_open === true && (item.price !== price || item.name !== name || item.vat !== vat)) ||
+                            item.bid_open !== bid_open
+                        ) {
+                           item.price = price;
+                           item.raw_price = price_string;
+                           item.currency = currency;
+                           item.vat = vat;
+                           item.date = date;
+                           item.raw_date = date_string;
+                           item.name = name;
+                           item.bid_open = bid_open;
+                           item.item_number = item_number;
+                           item.product_image = product_image;
+                           item.product_url = product_url;
+                           dbHasChanges = true;
+                        }
+                        isNewRecord = false;
                     }
-
-                    // check if auction date for `name` is not already extracted and add to json db
-                    if (db.some(item => item.date === date && item.name === name) !== true) {
-                        db.push(extractedItem);
-                        dbHasChanges = true;
-                    }
-                    data.push(extractedItem);
                 }
+                if (isNewRecord === true) {
+                    dbHasChanges = true;
+                    db.push(extractedItem);
+                }
+                data.push(extractedItem);
+
             }
         });
+
+        if (total_pages > 1 && (current_page+1) <= total_pages) {
+            data = await getData(options, data, current_page+1, total_pages);
+        }
+
         if (dbHasChanges) {
             await saveDB(data);
         }
 
         return data;
     }
-    return null;
+    return [];
 }
 
 export async function encodeData(data: DataTable, options: OptionValues) {
@@ -146,9 +210,9 @@ export async function encodeData(data: DataTable, options: OptionValues) {
         return JSON.stringify(data);
     }
     else if (options.format === 'csv') {
-        let outputBuffer = 'name,date,price,currency,raw_date,raw_price\n';
+        let outputBuffer = 'lot,bid_open,vat,name,date,price,currency,item_number,product_image,product_url,raw_date,raw_price\n';
         data.forEach(e => {
-            outputBuffer += `"${e.name}","${e.date.toISODate()}",${e.price},"${e.currency},${e.raw_date},${e.raw_price}"\n`;
+            outputBuffer += `${e.lot},${e.bid_open},${e.vat},"${e.name}","${e.date?.toISODate()}",${e.price},"${e.currency}",${e.item_number},${e.product_image},${e.product_url},"${e.raw_date}","${e.raw_price}"\n`;
         });
         return outputBuffer;
     }
@@ -158,12 +222,12 @@ export async function encodeData(data: DataTable, options: OptionValues) {
 }
 
 export async function writeData(data: string, options: OptionValues) {
-    let filename = "";
+    let filename = (options.input === "") ? options.input : "data";
     let dirname = "";
     let pathname = "";
 
     if (options.output === undefined) {
-        filename = options.input
+        filename = filename
             .replace(/\\/gi, '')
             .replace(/\//gi, '')
             .replace(/</gi, '_')

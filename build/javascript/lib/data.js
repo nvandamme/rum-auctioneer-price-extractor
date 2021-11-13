@@ -74,9 +74,10 @@ function saveDB(data) {
     });
 }
 exports.saveDB = saveDB;
-function getData(options) {
+function getData(options, data = [], current_page = 0, total_pages = -1) {
+    var _a;
     return __awaiter(this, void 0, void 0, function* () {
-        const url = `${options.url}?text=${options.input}&sort=${options.sort}&items_per_page=${options.items}`;
+        const url = `${options.url}?text=${options.input}&sort=${options.sort}&items_per_page=${options.items}&page=${current_page}`;
         const response = yield got(url);
         if (response.statusCode !== 200) {
             console.error('request failed');
@@ -88,64 +89,119 @@ function getData(options) {
             let numberParser;
             if (lang !== undefined)
                 numberParser = new intl_number_parser_1.NumberParser(lang);
-            let data = [];
             let db = yield loadDB();
             let dbHasChanges = false;
+            if (total_pages == -1) {
+                total_pages = parseInt(((_a = $('.pager-last a').attr('href')) === null || _a === void 0 ? void 0 : _a.split('&page=')[1].split('&')[0]) || "1");
+                current_page = 0;
+            }
             $('div.views-row.producthomepage').each((i, product) => {
-                const name = $(product).find('span.protitle').text().trim();
-                const date_string = $(product).find('div.enddatein > span.uc-price').text().trim();
+                var _a;
+                const lot_string = $(product).find('.lotnumber').text().toLowerCase().split('lot:').join('').trim();
+                let lot = 0;
+                let vat = 'uk';
+                let vat_selector = $(product).find('.lot-vat');
+                if ($(vat_selector.hasClass('vat-uk')))
+                    vat = 'uk';
+                else if ($(vat_selector.hasClass('vat-eu')))
+                    vat = 'eu';
+                else if ($(vat_selector.hasClass('vat-us')))
+                    vat = 'us';
+                const name = $(product).find('.protitle').text().trim();
+                const date_string = $(product).find('.enddatein .uc-price').text().trim();
                 const date = luxon_1.DateTime.fromFormat(date_string, 'dd.MM.yy');
-                const price_string = $(product).find('span > span.uc-price').text().trim();
-                let currency = "€";
+                const price_string = $(product).find('.WinningBid .uc-price').text().trim();
+                const product_image_string = (_a = $(product).find('.productimage img').attr('src')) === null || _a === void 0 ? void 0 : _a.split('product_current').join('uc_product_full');
+                const product_image = (product_image_string !== undefined) ? product_image_string : "";
+                const product_url_string = $(product).find('a').attr('href');
+                const product_url = (product_url_string !== undefined) ? product_url_string : "";
+                let currency = "£";
                 let price = 0;
                 let raw_price = price_string.replace(/\s/gi, '');
-                if (name != "" && date != null) {
-                    if (isNaN(parseInt(raw_price[0])) === true) {
-                        currency = raw_price[0];
-                        if (lang) {
-                            price = numberParser.parse(raw_price.substr(1));
-                        }
-                        else
-                            price = parseFloat(raw_price.substr(1));
+                const bid_open = (date_string !== "" && date !== undefined && date !== null) ? false : true;
+                const item_number_check = name.split('#');
+                let item_number;
+                if (item_number_check.length > 1)
+                    item_number = parseInt(item_number_check[1].split(' ')[0]);
+                if (lot_string !== "")
+                    lot = parseInt(lot_string);
+                if (isNaN(parseInt(raw_price[0])) === true) {
+                    currency = raw_price[0];
+                    if (lang) {
+                        price = numberParser.parse(raw_price.substr(1));
                     }
-                    else if (isNaN(parseInt(raw_price[raw_price.length - 1])) === true) {
-                        currency = raw_price[raw_price.length - 1];
-                        if (lang) {
-                            price = numberParser.parse(raw_price.substr(0, raw_price.length - 1));
-                        }
-                        else
-                            price = parseFloat(raw_price.substr(0, raw_price.length - 1));
+                    else
+                        price = parseFloat(raw_price.substr(1));
+                }
+                else if (isNaN(parseInt(raw_price[raw_price.length - 1])) === true) {
+                    currency = raw_price[raw_price.length - 1];
+                    if (lang) {
+                        price = numberParser.parse(raw_price.substr(0, raw_price.length - 1));
                     }
-                    else {
-                        if (lang) {
-                            price = numberParser.parse(raw_price);
-                        }
-                        else
-                            price = parseFloat(raw_price);
+                    else
+                        price = parseFloat(raw_price.substr(0, raw_price.length - 1));
+                }
+                else {
+                    if (lang) {
+                        price = numberParser.parse(raw_price);
                     }
-                    if (price != null && isNaN(price) != true) {
-                        const extractedItem = {
-                            name: name,
-                            date: date,
-                            price: price,
-                            currency: currency,
-                            raw_date: date_string,
-                            raw_price: price_string
-                        };
-                        if (db.some(item => item.date === date && item.name === name) !== true) {
-                            db.push(extractedItem);
-                            dbHasChanges = true;
+                    else
+                        price = parseFloat(raw_price);
+                }
+                const extractedItem = {
+                    lot: lot,
+                    vat: vat,
+                    bid_open: bid_open,
+                    name: name,
+                    date: date,
+                    price: price,
+                    currency: currency,
+                    item_number: item_number,
+                    product_image: product_image,
+                    product_url: product_url,
+                    raw_date: date_string,
+                    raw_price: price_string
+                };
+                if (price != null && isNaN(price) != true && lot > 0) {
+                    let isNewRecord = true;
+                    for (let i = 0; i < db.length; i++) {
+                        const item = db[i];
+                        if (item.lot === lot) {
+                            if ((item.bid_open !== true && (item.date !== date || item.vat !== vat || item.price !== price)) ||
+                                (item.bid_open === true && (item.price !== price || item.name !== name || item.vat !== vat)) ||
+                                item.bid_open !== bid_open) {
+                                item.price = price;
+                                item.raw_price = price_string;
+                                item.currency = currency;
+                                item.vat = vat;
+                                item.date = date;
+                                item.raw_date = date_string;
+                                item.name = name;
+                                item.bid_open = bid_open;
+                                item.item_number = item_number;
+                                item.product_image = product_image;
+                                item.product_url = product_url;
+                                dbHasChanges = true;
+                            }
+                            isNewRecord = false;
                         }
-                        data.push(extractedItem);
                     }
+                    if (isNewRecord === true) {
+                        dbHasChanges = true;
+                        db.push(extractedItem);
+                    }
+                    data.push(extractedItem);
                 }
             });
+            if (total_pages > 1 && (current_page + 1) <= total_pages) {
+                data = yield getData(options, data, current_page + 1, total_pages);
+            }
             if (dbHasChanges) {
                 yield saveDB(data);
             }
             return data;
         }
-        return null;
+        return [];
     });
 }
 exports.getData = getData;
@@ -155,9 +211,10 @@ function encodeData(data, options) {
             return JSON.stringify(data);
         }
         else if (options.format === 'csv') {
-            let outputBuffer = 'name,date,price,currency,raw_date,raw_price\n';
+            let outputBuffer = 'lot,bid_open,vat,name,date,price,currency,item_number,product_image,product_url,raw_date,raw_price\n';
             data.forEach(e => {
-                outputBuffer += `"${e.name}","${e.date.toISODate()}",${e.price},"${e.currency},${e.raw_date},${e.raw_price}"\n`;
+                var _a;
+                outputBuffer += `${e.lot},${e.bid_open},${e.vat},"${e.name}","${(_a = e.date) === null || _a === void 0 ? void 0 : _a.toISODate()}",${e.price},"${e.currency}",${e.item_number},${e.product_image},${e.product_url},"${e.raw_date}","${e.raw_price}"\n`;
             });
             return outputBuffer;
         }
@@ -169,11 +226,11 @@ function encodeData(data, options) {
 exports.encodeData = encodeData;
 function writeData(data, options) {
     return __awaiter(this, void 0, void 0, function* () {
-        let filename = "";
+        let filename = (options.input === "") ? options.input : "data";
         let dirname = "";
         let pathname = "";
         if (options.output === undefined) {
-            filename = options.input
+            filename = filename
                 .replace(/\\/gi, '')
                 .replace(/\//gi, '')
                 .replace(/</gi, '_')
